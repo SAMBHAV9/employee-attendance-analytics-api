@@ -1,0 +1,19 @@
+# Starter app review
+
+| # | Where | Defect | How to notice | Fix |
+|---|---|---|---|---|
+| 1 | `compute_late_minutes` | The helper compares truncated whole minutes with `> 10`; a punch at 09:40:01 for a 09:30 shift is incorrectly not late (R2 requires 10 minutes). | Try 09:40:00 and 09:40:01. | Compare elapsed seconds strictly to 600, then floor elapsed minutes from shift start. |
+| 2 | Time helpers | Naive/local datetimes and `fromtimestamp` make behavior depend on the host timezone; seconds are not truncated at input. | Run on a non-IST host or pass a timestamp with fractional seconds. | Treat API instants as UTC, convert calendar calculations to IST, and truncate to seconds before storing/calculating. |
+| 3 | `compute_late_minutes`, punch-in | Attendance-day assignment ignores overnight shifts; early-morning punches should belong to the prior shift date. | Punch in at 02:00 for a 22:00–06:00 shift. | Derive the attendance date from IST and the employee's shift times. |
+| 4 | `compute_work_hours` | Built-in `round` is ties-to-even, not the required decimal half-up rule. | Use a duration exactly halfway between hundredths. | Use `Decimal` and `ROUND_HALF_UP`. |
+| 5 | `compute_overtime` | Naive boundary uses an incorrect timezone and never advances overnight shift end to the next day. | Punch out 40 minutes after a 22:00–06:00 shift. | Construct an aware IST end boundary on the correct shift day. |
+| 6 | Employee create | Check-then-insert is racy; no unique index guarantees one `emp_code`. | Send concurrent duplicate employee creates. | Add a unique index and translate `DuplicateKeyError` to 409. |
+| 7 | Employee create/model | Input formats and limits are not validated, equal shift times are accepted, and server `created_at` is naive/not epoch milliseconds in the response. | Submit malformed code/date/time or inspect response. | Validate contract fields; reject equal shifts; store aware UTC and serialize epoch milliseconds. |
+| 8 | `list_employees` | `skip = page * page_size` skips page 1; `total` counts unfiltered employees; no stable sort or page bounds. | Request first page with a department filter. | Apply filters to count, use `(page-1)*page_size`, sort by code, and enforce pagination limits. |
+| 9 | Punch-in | Unknown employee causes a 500, status accepts invalid values, and timestamp conversion uses seconds/local time. | Unknown code, `ABSENT`, or seconds-looking timestamp. | Return 404; accept only presence statuses; validate integer epoch milliseconds and use UTC/IST conversions. |
+| 10 | Punch-in | Check-then-insert is not concurrency-safe and doesn't implement overnight attendance dates or second truncation. | Parallel same-day punches / overnight shift / fractional-second input. | Unique `(emp_code,date)` index; calculate R1 date; truncate before insert; map duplicate key to 409. |
+| 11 | `list_attendance` | Loads all matched records into Python, scales poorly, does not validate date order/pagination, and returns Mongo `_id`. | Inspect response or use a large collection/page 1. | Count/filter and sort/page in MongoDB with indexes; validate inputs; serialize without `_id`. |
+| 12 | Contract coverage | Punch-out, manual correction/audit history, four analytics routes, and explain route are missing. | Call the corresponding documented route. | Implemented those routes, including conditional updates for punch-out/corrections and Mongo aggregation for analytics. |
+| 13 | Startup/database | No required indexes are created, so uniqueness and query performance are not guaranteed. | Inspect indexes and explain plans. | Create idempotent unique and query indexes at startup. |
+
+**Reviewed and not defects:** using `emp_code` as the business identifier matches the data model; default shift values are specified; punch-in and punch-out are original events and must not create correction-history entries.
